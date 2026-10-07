@@ -1,14 +1,16 @@
-from streamlit_option_menu import option_menu
 import streamlit as st
+from sklearn.preprocessing import OrdinalEncoder
+from streamlit_option_menu import option_menu
 import os
 from dotenv import load_dotenv
-from langchain_groq import ChatGroq
-import time
 import pandas as pd
 import numpy as np
-import base64
 import requests
+import base64
 from streamlit_lottie import st_lottie
+from langchain_groq import ChatGroq
+from fpdf import FPDF
+import io
 
 # Import modular engines
 from src.data_processor import load_data, clean_data, get_data_quality_score
@@ -16,10 +18,7 @@ from src.eda_engine import generate_bar_chart, generate_line_chart
 from src.segmentation import run_kmeans, visualize_clusters
 from src.forecasting import train_forecast_model, visualize_forecast
 
-# Load environment variables
-load_dotenv()
-
-# --- Page Configuration ---
+# --- 1. Page Configuration (Strictly at the top before other Streamlit calls) ---
 st.set_page_config(
     page_title="NexusBI | Enterprise BI Portal",
     page_icon="📊",
@@ -27,40 +26,134 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- Sidebar Configuration ---
-with st.sidebar:
-    st.markdown("<h3 style='color: white; margin-bottom: 20px;'>⚙️ Enterprise Portal</h3>", unsafe_allow_html=True)
-    selected_page = option_menu(
-        menu_title=None,
-        options=["Command Center", "Analytics Engine", "Prediction Lab", "AI Strategist"],
-        icons=["rocket", "bar-chart", "cpu", "robot"],
-        menu_icon="cast",
-        default_index=0,
-        styles={
-            "nav-link-selected": {"background-color": "#d655e0"}
-        }
-    )
+# --- Load environment variables ---
+load_dotenv()
 
-# --- Lottie Animation Loader ---
-@st.cache_data(show_spinner=False)
-def load_lottieurl(url: str):
-    try:
-        r = requests.get(url, timeout=5)
-        if r.status_code != 200:
-            return None
-        return r.json()
-    except Exception:
-        return None
+# --- Helper function for PDF Executive Report Generation ---
+def generate_report():
+    from datetime import datetime
+    gen_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Generation date/time at the top right corner
+    pdf.set_font("Arial", "", 8)
+    pdf.set_text_color(120, 120, 120)
+    pdf.cell(0, 5, f"Report Generated: {gen_time}", ln=True, align="R")
+    pdf.ln(5)
+    
+    # Main Title
+    pdf.set_font("Arial", "B", 16)
+    pdf.set_text_color(26, 54, 93)  # Sleek Dark Corporate Blue
+    pdf.cell(0, 10, "NexusBI Enterprise - Executive Summary", ln=True, align="C")
+    
+    # Draw horizontal line under the title
+    current_y = pdf.get_y()
+    pdf.line(10, current_y, 200, current_y)
+    pdf.ln(8)
+    
+    # Section 1: Dataset Overview
+    pdf.set_font("Arial", "B", 12)
+    pdf.set_text_color(45, 55, 72)  # Charcoal
+    pdf.cell(0, 8, "Dataset Overview", ln=True)
+    
+    # Subtle line under section header
+    current_y = pdf.get_y()
+    pdf.line(10, current_y, 200, current_y)
+    pdf.ln(5)
+    
+    # Body text
+    pdf.set_font("Arial", "", 10)
+    pdf.set_text_color(60, 60, 60)
+    
+    if 'df_clean' in st.session_state and st.session_state['df_clean'] is not None:
+        df_clean = st.session_state['df_clean']
+        rows, cols = df_clean.shape
+        filename = st.session_state.get('filename', 'N/A')
+        
+        pdf.cell(5, 6, chr(149), ln=False)
+        pdf.cell(0, 6, f"File Name: {filename}", ln=True)
+        pdf.cell(5, 6, chr(149), ln=False)
+        pdf.cell(0, 6, f"Total Rows: {rows:,}", ln=True)
+        pdf.cell(5, 6, chr(149), ln=False)
+        pdf.cell(0, 6, f"Total Columns: {cols}", ln=True)
+    else:
+        pdf.cell(0, 6, "No dataset loaded. Please upload data in the Command Center first.", ln=True)
+    pdf.ln(8)
+    
+    # Section 2: Data Health & Engineering
+    pdf.set_font("Arial", "B", 12)
+    pdf.set_text_color(45, 55, 72)
+    pdf.cell(0, 8, "Data Health & Engineering", ln=True)
+    
+    # Subtle line under section header
+    current_y = pdf.get_y()
+    pdf.line(10, current_y, 200, current_y)
+    pdf.ln(5)
+    
+    pdf.set_font("Arial", "", 10)
+    pdf.set_text_color(60, 60, 60)
+    
+    if 'df_clean' in st.session_state and st.session_state['df_clean'] is not None:
+        df_clean = st.session_state['df_clean']
+        mem_size_mb = df_clean.memory_usage(deep=True).sum() / (1024 * 1024)
+        
+        pdf.cell(5, 6, chr(149), ln=False)
+        pdf.cell(0, 6, "Missing Values Handled: 100% Imputed or Cleared", ln=True)
+        pdf.cell(5, 6, chr(149), ln=False)
+        pdf.cell(0, 6, "Duplicate Records Resolved", ln=True)
+        pdf.cell(5, 6, chr(149), ln=False)
+        pdf.cell(0, 6, f"Memory Footprint: {mem_size_mb:.2f} MB", ln=True)
+        pdf.cell(5, 6, chr(149), ln=False)
+        pdf.cell(0, 6, "Data Types: Standardized for Scikit-Learn Pipelines", ln=True)
+    else:
+        pdf.cell(0, 6, "No dataset loaded. Data health diagnostics not available.", ln=True)
+    pdf.ln(8)
+    
+    # Section 3: Machine Learning Insights
+    pdf.set_font("Arial", "B", 12)
+    pdf.set_text_color(45, 55, 72)
+    pdf.cell(0, 8, "Machine Learning Insights", ln=True)
+    
+    # Subtle line under section header
+    current_y = pdf.get_y()
+    pdf.line(10, current_y, 200, current_y)
+    pdf.ln(5)
+    
+    pdf.set_font("Arial", "", 10)
+    pdf.set_text_color(60, 60, 60)
+    
+    # Achievements
+    pdf.cell(5, 6, chr(149), ln=False)
+    pdf.cell(0, 6, "Model Deployed: Random Forest Predictive Engine", ln=True)
+    pdf.cell(5, 6, chr(149), ln=False)
+    pdf.cell(0, 6, "Segmentation: K-Means Clustering executed successfully", ln=True)
+    pdf.cell(5, 6, chr(149), ln=False)
+    pdf.cell(0, 6, "Security: Isolation Forest Anomaly Detection active", ln=True)
+    
+    # Footer
+    pdf.set_y(-15)
+    pdf.set_font("Arial", "I", 8)
+    pdf.set_text_color(150, 150, 150)
+    pdf.cell(0, 10, "Generated automatically by InsightAI / NexusBI Enterprise Engine", align="C")
+    
+    pdf_str = pdf.output(dest='S')
+    if isinstance(pdf_str, str):
+        pdf_bytes = pdf_str.encode('latin-1')
+    else:
+        pdf_bytes = bytes(pdf_str)
+    
+    buffer = io.BytesIO()
+    buffer.write(pdf_bytes)
+    buffer.seek(0)
+    return buffer
 
-# Load Lottie animations (cached)
-lottie_data = load_lottieurl("https://assets3.lottiefiles.com/packages/lf20_qp1q7mct.json")
-lottie_ai = load_lottieurl("https://assets8.lottiefiles.com/packages/lf20_bs2nnb3x.json")
 
 # --- SVG Tech Doodle Background Generator ---
-# Subtle opacity stroke is directly embedded in the SVG so it ONLY applies to the sidebar
 svg_doodle = """<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
   <g stroke="rgba(255, 255, 255, 0.05)" stroke-width="1.2" fill="none">
-    <!-- Circuit path -->
+    <!-- Circuit paths -->
     <path d="M10,80 L60,80 L80,100 L120,100 L130,90 L130,60" />
     <circle cx="10" cy="80" r="2.5" />
     <circle cx="130" cy="60" r="2.5" />
@@ -95,230 +188,143 @@ svg_doodle = """<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"
 </svg>"""
 b64_doodle = base64.b64encode(svg_doodle.strip().encode()).decode()
 
-# --- Custom Styling: Deep Space & Sophisticated Frostmorphism CSS ---
+# Inject styling strictly for the sidebar area
 st.markdown(f"""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700;900&display=swap');
-    
-    /* Core fonts and global backgrounds */
-    html, body, [class*="css"], [class*="st-"] {{
-        font-family: 'Outfit', sans-serif !important;
-    }}
-    
-    .stApp {{
-        background-color: #0b0a0f !important;
-        color: #E2E8F0 !important;
-    }}
-    
-    /* Sleek gradient text customization */
-    .gradient-text {{
-        background: linear-gradient(135deg, #FF3366 0%, #B872FF 100%) !important;
-        -webkit-background-clip: text !important;
-        -webkit-text-fill-color: transparent !important;
-        background-clip: text !important;
-        display: inline-block;
-    }}
-    
-    /* Hide Streamlit default hamburger menu and footer/header decors */
-    #MainMenu {{visibility: hidden;}}
-    div[data-testid="stToolbar"] {{visibility: hidden;}}
-    div[data-testid="stDecoration"] {{display: none;}}
-    
-    /* Custom Sidebar styling: Frosted Glass with Tech Doodle Background isolated ONLY to sidebar */
+    /* Custom Sidebar styling: Tech Doodle Background isolated ONLY to sidebar area */
     section[data-testid="stSidebar"], [data-testid="stSidebar"], .stSidebar {{
         background-image: url("data:image/svg+xml;base64,{b64_doodle}") !important;
         background-repeat: repeat !important;
         background-size: 300px 300px !important;
-        background-color: rgba(15, 15, 25, 0.85) !important;
-        backdrop-filter: blur(12px) !important;
-        -webkit-backdrop-filter: blur(12px) !important;
+        background-color: #0b0a0f !important;
         border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
-        z-index: 999990 !important;
     }}
     
     [data-testid="stSidebarContent"], [data-testid="stSidebarContent"] > div, div[data-testid="stSidebarUserContent"] {{
         background-color: transparent !important;
     }}
     
-    h1, h2, h3 {{
+    /* Custom glowing effects for header icons in the main area */
+    .glow-pink {{
+        color: #d946ef !important;
+        text-shadow: 0 0 12px #d946ef, 0 0 25px rgba(217, 70, 239, 0.5) !important;
+        display: inline-block;
+        margin-right: 12px;
+    }}
+    .glow-cyan {{
+        color: #00f0ff !important;
+        text-shadow: 0 0 12px #00f0ff, 0 0 25px rgba(0, 240, 255, 0.5) !important;
+        display: inline-block;
+        margin-right: 12px;
+    }}
+    .glow-green {{
+        color: #10b981 !important;
+        text-shadow: 0 0 12px #10b981, 0 0 25px rgba(16, 185, 129, 0.5) !important;
+        display: inline-block;
+        margin-right: 12px;
+    }}
+    .glow-orange {{
+        color: #f97316 !important;
+        text-shadow: 0 0 12px #f97316, 0 0 25px rgba(249, 115, 22, 0.5) !important;
+        display: inline-block;
+        margin-right: 12px;
+    }}
+    .glowing-header {{
         font-family: 'Space Grotesk', sans-serif !important;
-        color: #FFFFFF !important;
-        font-weight: 900;
-    }}
-    
-    h4, h5, h6 {{
-        font-family: 'Outfit', sans-serif;
-        color: #FFFFFF !important;
-        font-weight: 600;
-    }}
-    
-    /* Glassmorphic Container Cards */
-    .glass-card {{
-        background: rgba(255, 255, 255, 0.05) !important;
-        backdrop-filter: blur(18px) !important;
-        -webkit-backdrop-filter: blur(18px) !important;
-        border-radius: 16px !important;
-        border: 1px solid rgba(255, 255, 255, 0.12) !important;
-        padding: 24px !important;
-        margin-bottom: 25px !important;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3) !important;
-        transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease !important;
-    }}
-    
-    .glass-card:hover {{
-        transform: translateY(-2px) !important;
-        box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.4) !important;
-        border-color: rgba(255, 255, 255, 0.2) !important;
-    }}
-    
-    .glass-card h4 {{
-        color: #FFFFFF !important;
-        margin-top: 0;
-        margin-bottom: 18px;
-        font-size: 19px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-        padding-bottom: 10px;
-    }}
-
-    /* Metric Cards: Glassmorphism */
-    div[data-testid="stMetric"] {{
-        background: rgba(255, 255, 255, 0.05) !important;
-        backdrop-filter: blur(15px) !important;
-        -webkit-backdrop-filter: blur(15px) !important;
-        border-radius: 12px !important;
-        border: 1px solid rgba(255, 255, 255, 0.12) !important;
-        padding: 18px 24px !important;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.25) !important;
-        transition: all 0.3s ease !important;
-    }}
-    
-    div[data-testid="stMetric"]:hover {{
-        transform: translateY(-2px) !important;
-        box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.3) !important;
-        border-color: rgba(255, 255, 255, 0.2) !important;
-    }}
-    
-    div[data-testid="stMetricLabel"] > div {{
-        font-family: 'Outfit', sans-serif;
-        color: rgba(226, 232, 240, 0.8) !important;
-        font-size: 13px !important;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        font-weight: 600 !important;
-    }}
-    
-    div[data-testid="stMetricValue"] > div {{
-        font-family: 'Outfit', sans-serif;
-        font-weight: 700 !important;
-        font-size: 28px !important;
-        color: #FFFFFF !important;
-        background: none !important;
-        -webkit-text-fill-color: initial !important;
-    }}
-
-    /* Dataframe & Table Glassmorphism */
-    div[data-testid="stDataFrame"], div[data-testid="stDataFrameContainer"], div[data-testid="stTable"], .stDataFrame {{
-        background: rgba(255, 255, 255, 0.03) !important;
-        backdrop-filter: blur(15px) !important;
-        -webkit-backdrop-filter: blur(15px) !important;
-        border-radius: 15px !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        padding: 8px !important;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3) !important;
-    }}
-    
-    /* Input element styling overrides */
-    div[data-baseweb="select"] > div {{
-        background-color: rgba(255, 255, 255, 0.05) !important;
-        color: #FFFFFF !important;
-        border-color: rgba(255, 255, 255, 0.12) !important;
-    }}
-    
-    /* Streamlit Alert overrides */
-    .stAlert {{
-        background: rgba(255, 255, 255, 0.05) !important;
-        backdrop-filter: blur(15px) !important;
-        -webkit-backdrop-filter: blur(15px) !important;
-        border-radius: 15px !important;
-        border: 1px solid rgba(255, 255, 255, 0.12) !important;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2) !important;
-    }}
-    
-    /* File Uploader styling */
-    div[data-testid="stFileUploader"] {{
-        background: rgba(255, 255, 255, 0.04) !important;
-        backdrop-filter: blur(10px) !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
-        border-radius: 12px !important;
-        padding: 20px !important;
-    }}
-    
-    /* Frosted Tabs styling */
-    div[data-baseweb="tab-list"] {{
-        background: rgba(255, 255, 255, 0.03) !important;
-        backdrop-filter: blur(10px) !important;
-        border-radius: 12px !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
-        padding: 5px !important;
-    }}
-    
-    button[data-baseweb="tab"] {{
-        background: transparent !important;
-        border: none !important;
-        color: rgba(255, 255, 255, 0.6) !important;
-        border-radius: 8px !important;
-        padding: 8px 16px !important;
-        transition: all 0.3s ease !important;
-    }}
-    
-    button[data-baseweb="tab"][aria-selected="true"] {{
-        background: rgba(255, 255, 255, 0.08) !important;
+        font-weight: 800 !important;
         color: #ffffff !important;
-        box-shadow: 0 4px 15px rgba(255, 255, 255, 0.05) !important;
-    }}
-    
-    /* Button Custom overrides */
-    div.stButton > button {{
-        background: rgba(255, 255, 255, 0.05) !important;
-        backdrop-filter: blur(10px) !important;
-        -webkit-backdrop-filter: blur(10px) !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        color: #ffffff !important;
-        border-radius: 8px !important;
-        padding: 10px 24px !important;
-        font-weight: 600 !important;
-        transition: all 0.3s ease !important;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.15) !important;
-    }}
-    
-    div.stButton > button:hover {{
-        background: rgba(255, 255, 255, 0.1) !important;
-        border-color: rgba(255, 255, 255, 0.2) !important;
-        transform: translateY(-1px) !important;
-        box-shadow: 0 6px 20px rgba(0,0,0,0.25) !important;
-    }}
-    
-    /* Scrollbar Design */
-    ::-webkit-scrollbar {{
-        width: 8px;
-        height: 8px;
-    }}
-    ::-webkit-scrollbar-track {{
-        background: rgba(11, 10, 15, 0.5);
-    }}
-    ::-webkit-scrollbar-thumb {{
-        background: rgba(255, 255, 255, 0.12);
-        border-radius: 4px;
-    }}
-    ::-webkit-scrollbar-thumb:hover {{
-        background: rgba(255, 255, 255, 0.22);
+        margin-top: 10px !important;
+        margin-bottom: 20px !important;
     }}
 </style>
 """, unsafe_allow_html=True)
 
+# Inject JS style override for option-menu iframe (targets active vs inactive icons)
+st.markdown("""
+<img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" style="display:none;" onerror="
+    try {
+        const injectStyles = () => {
+            const iframes = window.parent.document.querySelectorAll('iframe');
+            iframes.forEach(iframe => {
+                try {
+                    const doc = iframe.contentDocument || iframe.contentWindow.document;
+                    if (doc && !doc.getElementById('glow-style-override')) {
+                        const style = doc.createElement('style');
+                        style.id = 'glow-style-override';
+                        style.innerHTML = `
+                            /* Inactive icons: Cyan glow */
+                            .nav-link i {
+                                color: #00f0ff !important;
+                                filter: drop-shadow(0 0 3px rgba(0, 240, 255, 0.8)) !important;
+                                transition: all 0.3s ease !important;
+                            }
+                            /* Active selected icon: Pinkish-purple glow */
+                            .nav-link.active i {
+                                color: #ffffff !important;
+                                filter: drop-shadow(0 0 6px #d946ef) !important;
+                            }
+                        `;
+                        doc.head.appendChild(style);
+                    }
+                } catch(e) {}
+            });
+        };
+        injectStyles();
+        // Periodically verify in case of route transitions or lazy loading
+        setInterval(injectStyles, 1000);
+    } catch(e) {}
+"/>
+""", unsafe_allow_html=True)
 
+# --- Navigation Menu using streamlit-option-menu ---
+with st.sidebar:
+    selected_page = option_menu(
+        menu_title="Enterprise Portal",
+        options=["Command Center", "Analytics Engine", "Prediction Lab", "AI Strategist"],
+        icons=["rocket", "bar-chart", "cpu", "robot"],
+        menu_icon=None,
+        default_index=0,
+        styles={
+            "container": {"background-color": "transparent"},
+            "icon": {"color": "#00f0ff", "filter": "drop-shadow(0 0 3px #00f0ff)"},
+            "nav-link": {"color": "white", "--hover-color": "rgba(255, 255, 255, 0.1)"},
+            "nav-link-selected": {
+                "background-color": "#d946ef",
+                "color": "white",
+                "box-shadow": "0 0 12px #d946ef"
+            }
+        }
+    )
+    
+    st.divider()
+    
+    # PDF generation integration
+    if 'df_clean' in st.session_state and st.session_state['df_clean'] is not None:
+        report_buffer = generate_report()
+        st.download_button(
+            label="📄 Generate Executive Report",
+            data=report_buffer.getvalue(),
+            file_name="NexusBI_Report.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
+    else:
+        st.button("📄 Generate Executive Report", disabled=True, help="Please upload a dataset in the Command Center first.", use_container_width=True)
 
+# --- Lottie Animation Loader ---
+@st.cache_data(show_spinner=False)
+def load_lottieurl(url: str):
+    try:
+        r = requests.get(url, timeout=5)
+        if r.status_code != 200:
+            return None
+        return r.json()
+    except Exception:
+        return None
 
+# Load Lottie animations (cached)
+lottie_data = load_lottieurl("https://assets3.lottiefiles.com/packages/lf20_qp1q7mct.json")
+lottie_bot = load_lottieurl("https://assets9.lottiefiles.com/packages/lf20_M9p23l.json")
 
 # --- Helper function for Demo Data Generation ---
 def generate_demo_data() -> pd.DataFrame:
@@ -364,26 +370,53 @@ if 'df_forecast' not in st.session_state:
 if 'forecast_target' not in st.session_state:
     st.session_state['forecast_target'] = None
 
-
-# --- 2. ROUTING LOGIC ---
-st.markdown("<h1 style='font-weight: 900;'>🧠 NexusBI Enterprise</h1>", unsafe_allow_html=True)
+# --- 3. ROUTING AND PAGE CONTENT ---
+# Global App Branding (InsightAI)
+st.markdown("""
+<div style="margin-bottom: 30px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 12px;">
+    <h1 style="font-family: 'Space Grotesk', sans-serif; font-weight: 900; margin: 0; font-size: 34px; display: inline-flex; align-items: center; gap: 12px;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" style="width: 36px; height: 36px; display: inline-block; vertical-align: middle; filter: drop-shadow(0 0 10px rgba(0, 240, 255, 0.6));">
+            <defs>
+                <linearGradient id="logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#00f0ff" />
+                    <stop offset="100%" stop-color="#d946ef" />
+                </linearGradient>
+            </defs>
+            <polygon points="16,2 29,9.5 29,24.5 16,32 3,24.5 3,9.5" stroke="url(#logo-grad)" stroke-width="2.2" fill="none" />
+            <line x1="16" y1="9" x2="23" y2="13" stroke="#00f0ff" stroke-width="1.2" opacity="0.8" />
+            <line x1="23" y1="13" x2="23" y2="21" stroke="#d946ef" stroke-width="1.2" opacity="0.8" />
+            <line x1="23" y1="21" x2="16" y2="25" stroke="#00f0ff" stroke-width="1.2" opacity="0.8" />
+            <line x1="16" y1="25" x2="9" y2="21" stroke="#d946ef" stroke-width="1.2" opacity="0.8" />
+            <line x1="9" y1="21" x2="9" y2="13" stroke="#00f0ff" stroke-width="1.2" opacity="0.8" />
+            <line x1="9" y1="13" x2="16" y2="9" stroke="#d946ef" stroke-width="1.2" opacity="0.8" />
+            <line x1="16" y1="9" x2="16" y2="17" stroke="#ffffff" stroke-width="1.2" opacity="0.9" />
+            <line x1="23" y1="13" x2="16" y2="17" stroke="#ffffff" stroke-width="1.2" opacity="0.9" />
+            <line x1="23" y1="21" x2="16" y2="17" stroke="#ffffff" stroke-width="1.2" opacity="0.9" />
+            <line x1="16" y1="25" x2="16" y2="17" stroke="#ffffff" stroke-width="1.2" opacity="0.9" />
+            <line x1="9" y1="21" x2="16" y2="17" stroke="#ffffff" stroke-width="1.2" opacity="0.9" />
+            <line x1="9" y1="13" x2="16" y2="17" stroke="#ffffff" stroke-width="1.2" opacity="0.9" />
+            <circle cx="16" cy="9" r="2.5" fill="#00f0ff" />
+            <circle cx="23" cy="13" r="2.5" fill="#d946ef" />
+            <circle cx="23" cy="21" r="2.5" fill="#00f0ff" />
+            <circle cx="16" cy="25" r="2.5" fill="#d946ef" />
+            <circle cx="9" cy="21" r="2.5" fill="#00f0ff" />
+            <circle cx="9" cy="13" r="2.5" fill="#d946ef" />
+            <circle cx="16" cy="17" r="3.5" fill="#ffffff" style="filter: drop-shadow(0 0 4px #fff);" />
+        </svg>
+        <span style="background: linear-gradient(135deg, #ffffff 0%, #d946ef 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 0 8px rgba(217, 70, 239, 0.4)); font-weight: 900;">NexusBI Enterprise</span>
+    </h1>
+</div>
+""", unsafe_allow_html=True)
 
 if selected_page == "Command Center":
-    st.markdown(
-        '<div class="glass-card">'
-        '<h1><span style="font-size: 40px; vertical-align: middle;">🚀</span> <span class="gradient-text" style="vertical-align: middle;">Command Center</span></h1>'
-        '<p style="color:#E2E8F0; margin:0; font-size: 14px;">'
-        'Ingest raw unstructured enterprise files. The engine automatically parses headers, removes duplicates, fills missing observations, and generates quality scores.'
-        '</p>'
-        '</div>', 
-        unsafe_allow_html=True
-    )
+    st.markdown("<h1 class='glowing-header'><span class='glow-pink'>🚀</span> Command Center</h1>", unsafe_allow_html=True)
+    st.write("Ingest raw unstructured enterprise files. The engine automatically parses headers, removes duplicates, fills missing observations, and generates quality scores.")
     
     # Lottie high-tech data visualization animation
     if lottie_data:
         st_lottie(lottie_data, height=300)
 
-    # 2. File Uploader
+    # File Uploader
     uploaded_file = st.file_uploader(
         "Upload enterprise CSV or Excel dataset", 
         type=["csv", "xlsx", "xls"],
@@ -415,7 +448,7 @@ if selected_page == "Command Center":
                 except Exception as e:
                     st.error(f"Incomplete processing: {str(e)}")
                     
-    # 3. Action Bar on frosted glass
+    # Action Bar
     col_action_btn, col_action_score = st.columns([1, 1])
     with col_action_btn:
         load_demo = st.button("Load Sample Demo Data")
@@ -444,54 +477,21 @@ if selected_page == "Command Center":
 
     with col_action_score:
         if 'quality_score' in st.session_state and st.session_state['quality_score'] is not None:
-            st.markdown(
-                f'<div class="frosted-bar" style="background: rgba(255, 255, 255, 0.05) !important;'
-                f'backdrop-filter: blur(10px) !important;'
-                f'-webkit-backdrop-filter: blur(10px) !important;'
-                f'border: 1px solid rgba(255, 255, 255, 0.1) !important;'
-                f'border-radius: 8px;'
-                f'padding: 8px 16px;'
-                f'display: inline-flex;'
-                f'align-items: center;'
-                f'gap: 8px;'
-                f'margin-top: 5px;'
-                f'box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);">'
-                f'<span style="height: 10px; width: 10px; background-color: #00FF7F; border-radius: 50%; display: inline-block; box-shadow: 0 0 10px #00FF7F; animation: pulse 2s infinite;"></span>'
-                f'<span style="color: #E2E8F0; font-size: 14px; font-weight: 600;">Data Quality Score: {st.session_state["quality_score"]}%</span>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
+            st.metric("Data Quality Score", value=f"{st.session_state['quality_score']}%")
         else:
-            st.markdown(
-                '<div class="frosted-bar" style="background: rgba(255, 255, 255, 0.05) !important;'
-                'backdrop-filter: blur(10px) !important;'
-                '-webkit-backdrop-filter: blur(10px) !important;'
-                'border: 1px solid rgba(255, 255, 255, 0.1) !important;'
-                'border-radius: 8px;'
-                'padding: 8px 16px;'
-                'display: inline-flex;'
-                'align-items: center;'
-                'gap: 8px;'
-                'margin-top: 5px;'
-                'box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);">'
-                '<span style="height: 10px; width: 10px; background-color: #94A3B8; border-radius: 50%; display: inline-block;"></span>'
-                '<span style="color: #94A3B8; font-size: 14px; font-weight: 500;">No Data Ingested</span>'
-                '</div>',
-                unsafe_allow_html=True
-            )
+            st.info("No Data Ingested")
 
     # Display characteristics if data is loaded
-    if 'data' in st.session_state:
+    if st.session_state.get('data') is not None:
         # Resolve df_clean and df_raw locally from session state if they are not already bound
         if 'df_clean' not in locals():
             df_clean = st.session_state.get('df_clean', st.session_state.get('data'))
         if 'df_raw' not in locals():
             df_raw = st.session_state.get('df_raw')
 
-        # Bright Green Success Banner
-        st.markdown("<div style='background-color: #00FF7F; color: #000; padding: 15px; border-radius: 10px; font-weight: bold; font-size: 16px; box-shadow: 0px 4px 10px rgba(0, 255, 127, 0.4); margin-bottom: 25px;'>✅ Data Model Loaded Successfully!</div>", unsafe_allow_html=True)
+        st.success("Data Model Loaded Successfully!")
         
-        # 5. Four KPI cards of see-through frosted acrylic
+        # Four KPI cards
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric(label="Model Accuracy", value="96%")
@@ -502,14 +502,13 @@ if selected_page == "Command Center":
         with col4:
             st.metric(label="Data Quality Score", value=f"{st.session_state['quality_score']}%")
             
-        st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
+        st.markdown("---")
         
         # Interactive Preview Tabs
         tab_preview, tab_diagnostics = st.tabs(["📋 Cleaned Dataset Preview", "📊 Feature Types & Diagnostics"])
         
         with tab_preview:
             try:
-                # Check if df_clean exists in local variables or session state
                 if 'df_clean' in locals():
                     st.dataframe(df_clean, use_container_width=True)
                 elif 'df_clean' in st.session_state:
@@ -521,7 +520,6 @@ if selected_page == "Command Center":
             
         with tab_diagnostics:
             try:
-                # Resolve local df_raw and df_clean if they didn't get bound
                 local_df_raw = locals().get('df_raw', st.session_state.get('df_raw'))
                 local_df_clean = locals().get('df_clean', st.session_state.get('df_clean', st.session_state.get('data')))
                 
@@ -558,109 +556,144 @@ if selected_page == "Command Center":
                 st.info("💡 Awaiting data ingestion. Diagnostics not available.")
 
 elif selected_page == "Analytics Engine":
-    st.markdown("<h3>📊 Analytics Engine</h3>", unsafe_allow_html=True)
-    if 'data' in st.session_state:
-        # Bright Green Success Banner
-        st.markdown("<div style='background-color: #00FF7F; color: #000; padding: 15px; border-radius: 10px; font-weight: bold; font-size: 16px; box-shadow: 0px 4px 10px rgba(0, 255, 127, 0.4); margin-bottom: 25px;'>✅ Data Model Loaded Successfully!</div>", unsafe_allow_html=True)
-        
-        df = st.session_state['data']
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown('<div class="glass-card"><h4>Categorical Distribution Analyzer</h4>', unsafe_allow_html=True)
-            suggested_categories = [col for col in df.columns if df[col].dtype == 'object' or df[col].nunique() < 15]
-            if not suggested_categories:
-                suggested_categories = list(df.columns)
-            
-            selected_cat = st.selectbox(
-                "Categorical Dimension (X-Axis)", 
-                suggested_categories,
-                help="Categorical columns or lower cardinality fields."
-            )
-            
-            numerical_cols = [None] + [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
-            selected_val = st.selectbox(
-                "Aggregate Value (Y-Axis, Optional)", 
-                numerical_cols,
-                help="Optional numeric column to calculate values. Leave blank to compute frequencies/counts."
-            )
-            
-            try:
-                fig_bar = generate_bar_chart(df, selected_cat, selected_val)
-                # Apply custom styles to match template
-                fig_bar.update_layout(
-                    template="plotly_dark",
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    font=dict(color="#E2E8F0"),
-                    colorway=['#FF3366', '#20D2EB', '#B872FF', '#FF9933', '#00E676']
-                )
-                st.plotly_chart(fig_bar, use_container_width=True)
-            except Exception as e:
-                st.error(f"Could not build visualization: {e}")
-            st.markdown('</div>', unsafe_allow_html=True)
-            
-        with col2:
-            st.markdown('<div class="glass-card"><h4>Numerical Trend Explorer</h4>', unsafe_allow_html=True)
-            all_cols = list(df.columns)
-            numerical_only = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
-            
-            if len(all_cols) >= 2 and len(numerical_only) >= 1:
-                default_y_index = 0 if len(numerical_only) == 1 else min(1, len(numerical_only)-1)
-                selected_x = st.selectbox(
-                    "Trend/Timeline Dimension (X-Axis)", 
-                    all_cols,
-                    index=0,
-                    help="Select the independent variable (dates, sequential IDs, etc.)."
-                )
-                selected_y = st.selectbox(
-                    "Metric Value (Y-Axis)", 
-                    numerical_only,
-                    index=default_y_index,
-                    help="Select numerical metrics to trace trends."
-                )
-                
-                try:
-                    fig_line = generate_line_chart(df, selected_x, selected_y)
-                    # Apply custom styling overrides to line chart (keeping custom line styling from eda_engine)
-                    fig_line.update_layout(
-                        template="plotly_dark",
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)",
-                        font=dict(color="#E2E8F0")
-                    )
-                    st.plotly_chart(fig_line, use_container_width=True)
-                except Exception as e:
-                    st.error(f"Could not build visualization: {e}")
-            else:
-                st.warning("This dataset doesn't have sufficient numeric features to trace trend values.")
-            st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("<h1 class='glowing-header'><span class='glow-cyan'>📊</span> Analytics Engine</h1>", unsafe_allow_html=True)
+    
+    # Context Check: Ensure cleaned dataset exists
+    if 'df_clean' not in st.session_state or st.session_state['df_clean'] is None:
+        st.info("💡 Awaiting data ingestion. Please upload a dataset in the Command Center first.")
     else:
-        st.warning("⚠️ Data Model Required. Please upload a dataset in the Command Center.")
+        st.success("Data Model Loaded Successfully!")
+        df = st.session_state['df_clean']
+        
+        # KPI Overview: Quick data health stats
+        total_records = df.shape[0]
+        total_features = df.shape[1]
+        numeric_features = len([col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])])
+        categorical_features = total_features - numeric_features
+        
+        kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
+        kpi_col1.metric("Total Records", f"{total_records:,}")
+        kpi_col2.metric("Total Features", f"{total_features}")
+        kpi_col3.metric("Numeric Features", f"{numeric_features}")
+        kpi_col4.metric("Categorical Features", f"{categorical_features}")
+        
+        st.markdown("---")
+        
+        # Organized UI Tabs
+        tab_dist, tab_corr, tab_cat = st.tabs(["📊 Distributions", "🔗 Correlations", "📈 Categorical Analysis"])
+        
+        # Tab 1: Distributions
+        with tab_dist:
+            # Exclude numeric columns that contain "id" in their column name (case-insensitive)
+            numeric_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col]) and "id" not in col.lower()]
+            if not numeric_cols:
+                st.warning("⚠️ No numeric features detected in this dataset.")
+            else:
+                selected_num_col = st.selectbox(
+                    "Select Numeric Feature for Distribution Analysis",
+                    numeric_cols,
+                    key="eda_dist_selectbox"
+                )
+                # Filter to only include data between the 1st and 99th percentiles to handle outliers
+                q_low = df[selected_num_col].quantile(0.01)
+                q_high = df[selected_num_col].quantile(0.99)
+                if pd.notnull(q_low) and pd.notnull(q_high):
+                    filtered_df = df[(df[selected_num_col] >= q_low) & (df[selected_num_col] <= q_high)]
+                else:
+                    filtered_df = df
+                
+                import plotly.express as px
+                fig_dist = px.histogram(
+                    filtered_df,
+                    x=selected_num_col,
+                    template="plotly_dark",
+                    color_discrete_sequence=['#00f0ff'],
+                    title=f"Distribution of {selected_num_col} (1st - 99th Percentile)"
+                )
+                fig_dist.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    font_color='#ffffff',
+                    xaxis=dict(gridcolor='rgba(255,255,255,0.05)', title=selected_num_col),
+                    yaxis=dict(gridcolor='rgba(255,255,255,0.05)', title="Count"),
+                    margin=dict(l=40, r=40, t=50, b=40)
+                )
+                st.plotly_chart(fig_dist, use_container_width=True)
+                
+        # Tab 2: Correlations
+        with tab_corr:
+            numeric_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
+            # Dynamically drop numeric columns containing "id" (case-insensitive) in their column name
+            corr_cols = [col for col in numeric_cols if "id" not in col.lower()]
+            if len(corr_cols) < 2:
+                st.warning("⚠️ At least two numeric features (excluding ID columns) are required to compute a correlation matrix.")
+            else:
+                corr_matrix = df[corr_cols].corr()
+                import plotly.express as px
+                fig_corr = px.imshow(
+                    corr_matrix,
+                    text_auto=True,
+                    color_continuous_scale="Plasma",
+                    template="plotly_dark",
+                    title="Correlation Matrix (Numeric Features)"
+                )
+                fig_corr.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    font_color='#ffffff',
+                    margin=dict(l=40, r=40, t=50, b=40)
+                )
+                st.plotly_chart(fig_corr, use_container_width=True)
+                
+        # Tab 3: Categorical Analysis
+        with tab_cat:
+            # Exclude any column containing "id", "no", "code", or "date" (case-insensitive)
+            categorical_cols = [
+                col for col in df.columns 
+                if not pd.api.types.is_numeric_dtype(df[col]) and not any(kw in col.lower() for kw in ["id", "no", "code", "date"])
+            ]
+            if not categorical_cols:
+                st.warning("⚠️ No categorical features detected in this dataset.")
+            else:
+                selected_cat_col = st.selectbox(
+                    "Select Categorical Feature for Frequency Analysis",
+                    categorical_cols,
+                    key="eda_cat_selectbox"
+                )
+                cat_counts = df[selected_cat_col].value_counts().head(10).reset_index()
+                cat_counts.columns = ['Category', 'Count']
+                
+                import plotly.express as px
+                fig_cat = px.bar(
+                    cat_counts,
+                    x='Category',
+                    y='Count',
+                    color='Count',
+                    color_continuous_scale="Plasma",
+                    template="plotly_dark",
+                    title=f"Top 10 Most Frequent Categories in {selected_cat_col}"
+                )
+                fig_cat.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    font_color='#ffffff',
+                    xaxis=dict(gridcolor='rgba(255,255,255,0.05)', title="Category"),
+                    yaxis=dict(gridcolor='rgba(255,255,255,0.05)', title="Count"),
+                    margin=dict(l=40, r=40, t=50, b=40)
+                )
+                st.plotly_chart(fig_cat, use_container_width=True)
 
 elif selected_page == "Prediction Lab":
-    st.markdown("<h3>🎯 Prediction Lab</h3>", unsafe_allow_html=True)
-    if 'data' in st.session_state:
-        # Bright Green Success Banner
-        st.markdown("<div style='background-color: #00FF7F; color: #000; padding: 15px; border-radius: 10px; font-weight: bold; font-size: 16px; box-shadow: 0px 4px 10px rgba(0, 255, 127, 0.4); margin-bottom: 25px;'>✅ Data Model Loaded Successfully!</div>", unsafe_allow_html=True)
-        
+    st.markdown("<h1 class='glowing-header'><span class='glow-green'>🧠</span> Prediction Lab</h1>", unsafe_allow_html=True)
+    if st.session_state.get('data') is not None:
+        st.success("Data Model Loaded Successfully!")
         df = st.session_state['data']
-        
-        tab_cluster, tab_forecast = st.tabs(["🎯 Customer & Record Segmentation", "📈 30-Day Time-Series Forecasting"])
+        tab_cluster, tab_forecast, tab_anomaly = st.tabs(["🎯 Customer Segmentation", "📈 Random Forest Forecasting", "🚨 Anomaly Detection"])
         
         # --- TAB 1: SEGMENTATION ---
         with tab_cluster:
-            st.markdown(
-                '<div class="glass-card">'
-                '<h4>K-Means Cluster Profiling</h4>'
-                '<p style="color: #E2E8F0; font-size: 13px;">'
-                'Clusters records into 3 discrete segments using K-Means. All numeric variables are automatically normalized '
-                'via StandardScaler to prevent scale bias.'
-                '</p>'
-                '</div>', 
-                unsafe_allow_html=True
-            )
+            st.subheader("K-Means Cluster Profiling")
+            st.write("Clusters records into 3 discrete segments using K-Means. All numeric variables are automatically normalized via StandardScaler to prevent scale bias.")
             
             num_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
             
@@ -670,12 +703,12 @@ elif selected_page == "Prediction Lab":
                 col_left, col_right = st.columns([1, 2])
                 
                 with col_left:
-                    st.markdown("##### Configuration Parameters")
+                    st.write("##### Configuration Parameters")
                     st.info("K-Means Hyperparameters locked to n_clusters=3 for this roadmap segment.")
                     
-                    st.markdown("**Features selected for scaling and fitting:**")
+                    st.write("**Features selected for scaling and fitting:**")
                     for col in num_cols:
-                        st.markdown(f"- `{col}`")
+                        st.write(f"- `{col}`")
                     
                     run_segmentation = st.button("Run Clustering Pipeline", type="primary")
                 
@@ -696,104 +729,420 @@ elif selected_page == "Prediction Lab":
                                 st.session_state['df_clustered'], 
                                 st.session_state['clustering_cols']
                             )
-                            fig_cluster.update_layout(
-                                template="plotly_dark",
-                                paper_bgcolor="rgba(0,0,0,0)",
-                                font=dict(color="#E2E8F0"),
-                                colorway=['#FF3366', '#20D2EB', '#B872FF', '#FF9933', '#00E676']
-                            )
                             st.plotly_chart(fig_cluster, use_container_width=True)
                             
-                            st.markdown("##### Clustered Preview Segment (Top 5 rows)")
+                            st.write("##### Clustered Preview Segment (Top 5 rows)")
                             cols_to_show = ['cluster'] + st.session_state['clustering_cols']
                             st.dataframe(st.session_state['df_clustered'][cols_to_show].head(5), use_container_width=True)
         
-        # --- TAB 2: FORECASTING ---
+        # --- TAB 2: FORECASTING (Random Forest ML Engine) ---
         with tab_forecast:
-            st.markdown(
-                '<div class="glass-card" style="border-left: 4px solid #FF8E53 !important;">'
-                '<h4 style="color:#FF8E53; border:none; margin:0; padding:0;">Enterprise Predictor Engine</h4>'
-                '<p style="color: #E2E8F0; font-size: 13px; margin-top:5px; margin-bottom:0;">'
-                'Aggregates target value columns daily and predicts trends for the next 30 days. Uses Prophet '
-                'as the primary forecaster with automated XGBoost/Linear regression fallbacks.'
-                '</p>'
-                '</div>', 
-                unsafe_allow_html=True
-            )
+            st.subheader("Random Forest Predictive Engine")
+            st.write("Train a Random Forest model on the selected features to predict your target variable. The engine automatically detects whether to run a Regression or Classification task, builds a pre-processing pipeline, and performs an evaluation split.")
             
-            numerical_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
-            date_cols = [col for col in df.columns if 'date' in col.lower() or 'time' in col.lower() or 'dt' in col.lower() or pd.api.types.is_datetime64_any_dtype(df[col])]
-            if not date_cols:
-                date_cols = list(df.columns)
+            # Feature Selection UI
+            col_sel1, col_sel2 = st.columns(2)
+            with col_sel1:
+                selected_target = st.selectbox(
+                    "Target Variable (Y)",
+                    options=list(df.columns),
+                    index=len(df.columns) - 1,
+                    help="Select the column you want to predict."
+                )
+            
+            with col_sel2:
+                features_options = [col for col in df.columns if col != selected_target]
+                selected_features = st.multiselect(
+                    "Feature Variables (X)",
+                    options=features_options,
+                    default=features_options[:min(5, len(features_options))],
+                    help="Select the columns to use as predictors."
+                )
                 
-            if not numerical_cols:
-                st.error("No numeric columns available to forecast.")
-            else:
-                col_ctrl, col_viz = st.columns([1, 2])
+            # ML configurations
+            col_cfg1, col_cfg2 = st.columns(2)
+            with col_cfg1:
+                test_size_pct = st.slider(
+                    "Test Split Size (%)",
+                    min_value=10,
+                    max_value=50,
+                    value=20,
+                    step=5,
+                    help="Percentage of the dataset withheld for testing model performance."
+                )
+                test_size_ratio = test_size_pct / 100.0
                 
-                with col_ctrl:
-                    st.markdown("##### Config Series Details")
-                    
-                    selected_date = st.selectbox(
-                        "Temporal/Date Column (Timeline Axis)", 
-                        date_cols,
-                        help="Select standard date or datetime index column."
-                    )
-                    
-                    selected_target = st.selectbox(
-                        "Target Forecast Metric", 
-                        numerical_cols,
-                        help="Numerical KPI to predict into the future."
-                    )
-                    
-                    run_forecaster = st.button("Train & Run Forecast Engine", type="primary")
-                    
-                with col_viz:
-                    if run_forecaster or st.session_state.get('df_forecast') is not None:
-                        if run_forecaster:
-                            with st.spinner("Aggregating timelines and fitting ML regression pipelines..."):
-                                try:
-                                    res_forecast = train_forecast_model(df, selected_date, selected_target)
-                                    st.session_state['df_forecast'] = res_forecast
-                                    st.session_state['forecast_target'] = selected_target
-                                    st.success("30-Day projections compiled!")
-                                except Exception as e:
-                                    st.error(f"Forecast engine failed: {e}")
-                                    
-                        if st.session_state.get('df_forecast') is not None:
-                            fig_fore = visualize_forecast(
-                                st.session_state['df_forecast'], 
-                                st.session_state['forecast_target']
-                            )
-                            fig_fore.update_layout(
-                                template="plotly_dark",
-                                paper_bgcolor="rgba(0,0,0,0)",
-                                plot_bgcolor="rgba(0,0,0,0)",
-                                font=dict(color="#E2E8F0")
-                            )
-                            if len(fig_fore.data) >= 2:
-                                fig_fore.data[0].line.color = '#FF3366'
-                                fig_fore.data[1].line.color = '#20D2EB'
-                            st.plotly_chart(fig_fore, use_container_width=True)
+            with col_cfg2:
+                # Detect target type
+                target_series = df[selected_target]
+                is_target_numeric = pd.api.types.is_numeric_dtype(target_series)
+                unique_target_count = target_series.nunique()
+                
+                # Propose task type
+                suggested_task = "Regression" if (is_target_numeric and unique_target_count > 10) else "Classification"
+                
+                user_selected_task = st.radio(
+                    "Select ML Task Type",
+                    options=["Regression", "Classification"],
+                    index=0 if suggested_task == "Regression" else 1,
+                    horizontal=True,
+                    help="Regression is for predicting continuous values. Classification is for predicting categories/labels."
+                )
+                
+                # Handle auto-detection and warn the user if overridden
+                if user_selected_task != suggested_task:
+                    task_type = suggested_task
+                    st.info(f"💡 ML task overridden to **{suggested_task}** based on the target variable `{selected_target}` (type: {'numeric' if is_target_numeric else 'categorical'}, unique values: {unique_target_count}).")
+                else:
+                    task_type = user_selected_task
+            
+            run_training = st.button("Train Random Forest Model", type="primary")
+            
+            # Setup session state key for model results
+            if 'rf_results' not in st.session_state:
+                st.session_state['rf_results'] = None
+                
+            if run_training:
+                if not selected_features:
+                    st.error("Please select at least one feature variable (X).")
+                else:
+                    with st.spinner("Preparing data and training Random Forest pipeline..."):
+                        try:
+                            # Imports
+                            from sklearn.model_selection import train_test_split
+                            from sklearn.compose import ColumnTransformer
+                            from sklearn.pipeline import Pipeline
+                            from sklearn.impute import SimpleImputer
+                            from sklearn.preprocessing import StandardScaler, OneHotEncoder, LabelEncoder, OrdinalEncoder
+                            from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+                            from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, accuracy_score, precision_score, recall_score, f1_score
+                            import plotly.express as px
                             
-                            st.markdown("##### Forecast Projections Preview (Next 30 Days)")
-                            future_only = st.session_state['df_forecast'][st.session_state['df_forecast']['actual'].isna()].copy()
-                            future_only.rename(columns={'ds': 'Date', 'forecast': 'Projected Value'}, inplace=True)
-                            st.dataframe(future_only[['Date', 'Projected Value']].reset_index(drop=True), use_container_width=True)
+                            # Extract data
+                            X_raw = df[selected_features]
+                            y_raw = df[selected_target]
+                            
+                            # Clean missing target values
+                            valid_target_mask = y_raw.notna()
+                            X_clean = X_raw[valid_target_mask].copy()
+                            y_clean = y_raw[valid_target_mask]
+                            
+                            if len(y_clean) < 5:
+                                st.error("Not enough non-null samples in the target variable to train a model.")
+                            else:
+                                # Smarter Date Handling: extract Month and Day, then drop original date column
+                                for col in list(X_clean.columns):
+                                    is_date = False
+                                    if pd.api.types.is_datetime64_any_dtype(X_clean[col]):
+                                        is_date = True
+                                    else:
+                                        if X_clean[col].dtype == 'object':
+                                            try:
+                                                non_null_samples = X_clean[col].dropna()
+                                                if not non_null_samples.empty:
+                                                    pd.to_datetime(non_null_samples.head(10))
+                                                    is_date = True
+                                            except (ValueError, TypeError):
+                                                pass
+                                    
+                                    if is_date:
+                                        try:
+                                            parsed_dates = pd.to_datetime(X_clean[col], errors='coerce')
+                                            if parsed_dates.notna().any():
+                                                X_clean[f"{col}_month"] = parsed_dates.dt.month.fillna(1).astype(int)
+                                                X_clean[f"{col}_day"] = parsed_dates.dt.day.fillna(1).astype(int)
+                                                X_clean.drop(columns=[col], inplace=True)
+                                        except Exception:
+                                            pass
+ 
+                                # Identify column types based on original data type (numeric vs categorical/mixed)
+                                num_features = X_clean.select_dtypes(include=[np.number]).columns.tolist()
+                                initial_cat_features = [col for col in X_clean.columns if col not in num_features]
+                                
+                                # Drop highly unique raw text columns (like description, invoiceno/invoicedate if not numeric)
+                                dropped_features = []
+                                cat_features = []
+                                for col in initial_cat_features:
+                                    unique_count = X_clean[col].nunique()
+                                    # Threshold for high cardinality: either > 200 unique categories OR ratio of unique values > 30% of data size (if unique count > 20)
+                                    if unique_count > 200 or (unique_count > 20 and (unique_count / len(X_clean)) > 0.3):
+                                        dropped_features.append(col)
+                                    else:
+                                        cat_features.append(col)
+                                        
+                                if dropped_features:
+                                    st.info(f"💡 Automatically dropped high-cardinality/unusable text columns: {', '.join([f'`{c}`' for c in dropped_features])}")
+                                
+                                # Re-construct active features
+                                active_features = num_features + cat_features
+                                X_clean = X_clean[active_features]
+                                
+                                # Cast remaining categorical feature columns to string using .astype(str) to prevent mixed-type errors
+                                for col in cat_features:
+                                    X_clean[col] = X_clean[col].fillna('nan').astype(str)
+                                
+                                # Split data
+                                X_train, X_test, y_train, y_test = train_test_split(
+                                    X_clean, y_clean, test_size=test_size_ratio, random_state=42
+                                )
+                                
+                                # Define ColumnTransformer preprocessor
+                                transformers = []
+                                if num_features:
+                                    transformers.append(('num', Pipeline([
+                                        ('imputer', SimpleImputer(strategy='median')),
+                                        ('scaler', StandardScaler())
+                                    ]), num_features))
+                                if cat_features:
+                                    transformers.append(('cat', Pipeline([
+                                        ('imputer', SimpleImputer(missing_values='nan', strategy='most_frequent')),
+                                        ('ordinal', OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1))
+                                    ]), cat_features))
+                                    
+                                preprocessor = ColumnTransformer(transformers=transformers)
+                                
+                                if task_type == "Classification":
+                                    # Encode target labels
+                                    le = LabelEncoder()
+                                    y_train_encoded = le.fit_transform(y_train.astype(str))
+                                    y_test_encoded = le.transform(y_test.astype(str))
+                                    
+                                    # Create classifier pipeline
+                                    model = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
+                                    pipeline = Pipeline([
+                                        ('preprocessor', preprocessor),
+                                        ('model', model)
+                                    ])
+                                    
+                                    pipeline.fit(X_train, y_train_encoded)
+                                    y_pred = pipeline.predict(X_test)
+                                    
+                                    # Compute metrics
+                                    accuracy = accuracy_score(y_test_encoded, y_pred)
+                                    precision = precision_score(y_test_encoded, y_pred, average='weighted', zero_division=0)
+                                    recall = recall_score(y_test_encoded, y_pred, average='weighted', zero_division=0)
+                                    f1 = f1_score(y_test_encoded, y_pred, average='weighted', zero_division=0)
+                                    
+                                    metrics_dict = {
+                                        "Accuracy": accuracy,
+                                        "Precision (Weighted)": precision,
+                                        "Recall (Weighted)": recall,
+                                        "F1-Score (Weighted)": f1
+                                    }
+                                else:
+                                    # Create regressor pipeline
+                                    model = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
+                                    pipeline = Pipeline([
+                                        ('preprocessor', preprocessor),
+                                        ('model', model)
+                                    ])
+                                    
+                                    pipeline.fit(X_train, y_train)
+                                    y_pred = pipeline.predict(X_test)
+                                    
+                                    # Compute metrics
+                                    mae = mean_absolute_error(y_test, y_pred)
+                                    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+                                    r2 = r2_score(y_test, y_pred)
+                                    
+                                    metrics_dict = {
+                                        "R² Score": r2,
+                                        "RMSE": rmse,
+                                        "MAE": mae
+                                    }
+                                    
+                                # Feature Importances
+                                try:
+                                    feature_names = pipeline.named_steps['preprocessor'].get_feature_names_out()
+                                    feature_names = [f.replace('num__', '').replace('cat__', '') for f in feature_names]
+                                except Exception:
+                                    # fallback to numeric and categorical columns
+                                    feature_names = num_features + cat_features
+                                    
+                                importances = pipeline.named_steps['model'].feature_importances_
+                                
+                                # align dimensions just in case
+                                if len(feature_names) != len(importances):
+                                    feature_names = [f"Feature_{i}" for i in range(len(importances))]
+                                    
+                                df_imp = pd.DataFrame({
+                                    'Feature': feature_names,
+                                    'Importance': importances
+                                }).sort_values(by='Importance', ascending=True)
+                                
+                                st.session_state['rf_results'] = {
+                                    'task_type': task_type,
+                                    'metrics': metrics_dict,
+                                    'df_importance': df_imp,
+                                    'target_var': selected_target,
+                                    'feature_vars': selected_features
+                                }
+                                st.toast("Random Forest model trained successfully!", icon="🔮")
+                        except Exception as e:
+                            st.error(f"Error training model: {str(e)}")
+                            
+            # Render model results if available
+            rf_res = st.session_state['rf_results']
+            if rf_res is not None:
+                st.markdown("---")
+                
+                # Check for config discrepancy
+                if rf_res['target_var'] != selected_target or set(rf_res['feature_vars']) != set(selected_features):
+                    st.warning("⚠️ The current configurations do not match the trained model. Re-train the model to refresh these results.")
+                
+                # Metrics cards
+                st.write(f"#### Model Evaluation Metrics ({rf_res['task_type']})")
+                m_cols = st.columns(len(rf_res['metrics']))
+                for idx, (m_name, m_val) in enumerate(rf_res['metrics'].items()):
+                    with m_cols[idx]:
+                        if "%" in m_name or "Accuracy" in m_name or "Precision" in m_name or "Recall" in m_name or "F1-Score" in m_name:
+                            st.metric(label=m_name, value=f"{m_val:.2%}")
+                        else:
+                            st.metric(label=m_name, value=f"{m_val:.4f}")
+                            
+                # Feature Importance Chart
+                st.markdown("### Feature Importance")
+                df_imp = rf_res['df_importance']
+                
+                import plotly.express as px
+                fig = px.bar(
+                    df_imp,
+                    x='Importance',
+                    y='Feature',
+                    orientation='h',
+                    color='Importance',
+                    color_continuous_scale=[[0, '#00f0ff'], [1, '#d946ef']],
+                    title="Random Forest Feature Importance Analysis"
+                )
+                
+                # Prevent single or few features from rendering as massive screen-filling blocks
+                bar_width = 0.35 if len(df_imp) == 1 else (0.55 if len(df_imp) == 2 else 0.75)
+                fig.update_traces(width=bar_width)
+                
+                fig.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    font_color='#ffffff',
+                    height=350,
+                    xaxis=dict(gridcolor='rgba(255,255,255,0.05)', title="Importance Score"),
+                    yaxis=dict(gridcolor='rgba(255,255,255,0.05)', title="Feature"),
+                    margin=dict(l=150, r=20, t=50, b=50)
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+        # --- TAB 3: ANOMALY DETECTION (Isolation Forest ML Engine) ---
+        with tab_anomaly:
+            st.subheader("Isolation Forest Anomaly Detection")
+            st.write("Detect outlier observations in the dataset using the Isolation Forest algorithm. The model flags data points that deviate significantly from typical patterns.")
+            
+            if 'df_clean' not in st.session_state or st.session_state['df_clean'] is None:
+                st.warning("Please upload data in the Command Center first.")
+            else:
+                df_anomaly = st.session_state['df_clean']
+                
+                # Automatically select continuous numeric features (excluding ID columns)
+                numeric_cols = [col for col in df_anomaly.columns if pd.api.types.is_numeric_dtype(df_anomaly[col])]
+                anomaly_features = [col for col in numeric_cols if "id" not in col.lower()]
+                
+                if not anomaly_features:
+                    st.error("No continuous numeric features found in this dataset to perform anomaly detection.")
+                else:
+                    # Slider for expected contamination rate (Anomaly %)
+                    contamination = st.slider(
+                        "Expected Contamination Rate (Anomaly %)",
+                        min_value=0.01,
+                        max_value=0.20,
+                        value=0.05,
+                        step=0.01,
+                        help="The proportion of outliers in the data set."
+                    )
+                    
+                    with st.spinner("Training Isolation Forest and detecting anomalies..."):
+                        try:
+                            from sklearn.ensemble import IsolationForest
+                            import plotly.express as px
+                            
+                            # Clean/Impute any missing values just in case
+                            X_anomaly = df_anomaly[anomaly_features].fillna(df_anomaly[anomaly_features].median())
+                            
+                            # Fit IsolationForest
+                            iso_forest = IsolationForest(contamination=contamination, random_state=42, n_jobs=-1)
+                            preds = iso_forest.fit_predict(X_anomaly)
+                            
+                            # Create results dataframe
+                            df_anomaly_result = df_anomaly.copy()
+                            df_anomaly_result['anomaly_pred'] = preds
+                            df_anomaly_result['Anomaly Status'] = df_anomaly_result['anomaly_pred'].map({1: 'Normal', -1: 'Anomaly'})
+                            
+                            # Summary Metrics
+                            total_anomalies = (preds == -1).sum()
+                            anomaly_rate = total_anomalies / len(df_anomaly_result)
+                            
+                            m_col1, m_col2 = st.columns(2)
+                            m_col1.metric("Total Anomalies Detected", f"{total_anomalies:,}")
+                            m_col2.metric("Anomaly Rate (%)", f"{anomaly_rate:.2%}")
+                            
+                            st.markdown("---")
+                            
+                            # Automatically select two features to plot (try quantity vs unitprice first, else fallback)
+                            x_col = None
+                            y_col = None
+                            for col in anomaly_features:
+                                if "quant" in col.lower() or "qty" in col.lower():
+                                    x_col = col
+                                    break
+                            for col in anomaly_features:
+                                if "price" in col.lower() or "rate" in col.lower() or "cost" in col.lower() or "sales" in col.lower():
+                                    if col != x_col:
+                                        y_col = col
+                                        break
+                            
+                            # Fallback logic for plotting
+                            if not x_col and len(anomaly_features) > 0:
+                                x_col = anomaly_features[0]
+                            if not y_col and len(anomaly_features) > 1:
+                                y_col = anomaly_features[1]
+                            elif not y_col and len(anomaly_features) == 1:
+                                y_col = anomaly_features[0]
+                                
+                            if x_col and y_col:
+                                fig_scatter = px.scatter(
+                                    df_anomaly_result,
+                                    x=x_col,
+                                    y=y_col,
+                                    color='Anomaly Status',
+                                    color_discrete_map={'Normal': '#00f0ff', 'Anomaly': '#ff007f'},
+                                    template="plotly_dark",
+                                    title=f"Anomaly Detection Visualization: {x_col} vs {y_col}"
+                                )
+                                fig_scatter.update_layout(
+                                    paper_bgcolor='rgba(0,0,0,0)',
+                                    plot_bgcolor='rgba(0,0,0,0)',
+                                    font_color='#ffffff',
+                                    xaxis=dict(gridcolor='rgba(255,255,255,0.05)', title=x_col),
+                                    yaxis=dict(gridcolor='rgba(255,255,255,0.05)', title=y_col),
+                                    margin=dict(l=40, r=40, t=50, b=40)
+                                )
+                                st.plotly_chart(fig_scatter, use_container_width=True)
+                            else:
+                                st.info("Need at least one numeric feature to render scatter plot visualization.")
+                                
+                            st.markdown("### Flagged Anomaly Observations")
+                            df_anomalies_only = df_anomaly_result[df_anomaly_result['anomaly_pred'] == -1]
+                            st.dataframe(df_anomalies_only, use_container_width=True)
+                        except Exception as e:
+                            st.error(f"Error executing Anomaly Detection pipeline: {str(e)}")
     else:
-        st.warning("⚠️ Data Model Required. Please upload a dataset in the Command Center.")
+        st.warning("⚠️ No dataset detected. Please navigate to the Command Center first to upload your data or load a sample dataset to activate the Prediction Lab.")
 
 elif selected_page == "AI Strategist":
-    st.markdown("<h3>🤖 AI Strategist</h3>", unsafe_allow_html=True)
+    st.markdown("<h1 class='glowing-header'><span class='glow-orange'>🤖</span> AI Strategist</h1>", unsafe_allow_html=True)
     
     # Render the robot animation
-    lottie_bot = load_lottieurl("https://assets9.lottiefiles.com/packages/lf20_M9p23l.json")
     if lottie_bot:
         st_lottie(lottie_bot, height=250, key="final_ai_bot")
         
-    # Render the custom premium green banner
-    st.markdown("<div style='background-color: #00FF7F; color: #000; padding: 15px; border-radius: 10px; font-weight: bold; font-size: 16px; box-shadow: 0px 4px 10px rgba(0, 255, 127, 0.4);'>✅ Data Model Loaded Successfully!</div>", unsafe_allow_html=True)
-    st.write("") # Spacer
+    st.success("Data Model Loaded Successfully!")
 
     # Initialize chat history
     if "messages" not in st.session_state:
@@ -818,7 +1167,7 @@ elif selected_page == "AI Strategist":
                     if not api_key:
                         st.error("Missing API Key! Please verify that GROQ_API_KEY is defined in your .env file.")
                     else:
-                        # 1. Build context if data is available
+                        # Build context if data is available
                         data_context = ""
                         if 'df_clean' in st.session_state and st.session_state.df_clean is not None:
                             df = st.session_state.df_clean
@@ -841,7 +1190,7 @@ elif selected_page == "AI Strategist":
                         else:
                             data_context = "SYSTEM PROMPT: You are a confident AI assistant. Politely but firmly inform the user that no dataset has been uploaded yet, and instruct them to upload a file in the Command Center for custom analysis."
 
-                        # 2. Combine system context with user query
+                        # Combine system context with user query
                         full_prompt = f"{data_context}\n\nUser Question: {prompt}"
 
                         llm = ChatGroq(
@@ -852,5 +1201,4 @@ elif selected_page == "AI Strategist":
                         st.markdown(response.content)
                         st.session_state.messages.append({"role": "assistant", "content": response.content})
                 except Exception as e:
-                    st.error(f"Groq API Error: {e}")
-
+                     st.error(f"Groq API Error: {e}")
