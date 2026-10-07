@@ -93,8 +93,16 @@ def visualize_clusters(df: pd.DataFrame, numerical_cols: List[str], cluster_col:
 
         # Fallback logic based on number of numerical columns available
         if num_dims >= 3:
-            # 3D Scatter Plot using the first three numerical columns
-            x_col, y_col, z_col = numerical_cols[0], numerical_cols[1], numerical_cols[2]
+            # 3D Scatter Plot. Map quantity, unitprice, and customerid specifically if present.
+            quantity_col = next((c for c in numerical_cols if 'quantity' in c.lower()), None)
+            unitprice_col = next((c for c in numerical_cols if 'unitprice' in c.lower() or 'price' in c.lower()), None)
+            customer_col = next((c for c in numerical_cols if 'customerid' in c.lower() or 'customer' in c.lower() or 'id' in c.lower()), None)
+
+            if quantity_col and unitprice_col and customer_col:
+                x_col, y_col, z_col = quantity_col, unitprice_col, customer_col
+            else:
+                x_col, y_col, z_col = numerical_cols[0], numerical_cols[1], numerical_cols[2]
+
             fig = px.scatter_3d(
                 df,
                 x=x_col,
@@ -165,6 +173,7 @@ def visualize_clusters(df: pd.DataFrame, numerical_cols: List[str], cluster_col:
             ),
             plot_bgcolor="rgba(0,0,0,0)",
             paper_bgcolor="rgba(0,0,0,0)",
+            height=600,
         )
         
         return fig
