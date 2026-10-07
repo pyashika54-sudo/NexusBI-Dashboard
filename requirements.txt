@@ -9,4 +9,7 @@ streamlit-option-menu
 streamlit-lottie
 python-dotenv
 langchain
-langchain-openai
+langchain-groq
+fpdf
+requests
+
