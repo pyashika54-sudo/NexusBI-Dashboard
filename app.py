@@ -1195,7 +1195,7 @@ elif selected_page == "AI Strategist":
 
                         llm = ChatGroq(
                             api_key=api_key,
-                            model_name="llama-3.1-8b-instant"
+                           model_name="llama3-8b-8192"
                         )
                         response = llm.invoke(full_prompt)
                         st.markdown(response.content)
