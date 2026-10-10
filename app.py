@@ -1195,7 +1195,7 @@ elif selected_page == "AI Strategist":
 
                         llm = ChatGroq(
                             api_key=api_key,
-                           model_name="openai/gpt-oss-20b
+                           model_name="openai/gpt-oss-20b"
                         )
                         response = llm.invoke(full_prompt)
                         st.markdown(response.content)
