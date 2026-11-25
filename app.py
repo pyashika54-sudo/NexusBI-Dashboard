@@ -491,16 +491,7 @@ if selected_page == "Command Center":
 
         st.success("Data Model Loaded Successfully!")
         
-        # Four KPI cards
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric(label="Model Accuracy", value="96%")
-        with col2:
-            st.metric(label="Training Loss", value="0.04")
-        with col3:
-            st.metric(label="Epochs", value="25")
-        with col4:
-            st.metric(label="Data Quality Score", value=f"{st.session_state['quality_score']}%")
+    
             
         st.markdown("---")
         
